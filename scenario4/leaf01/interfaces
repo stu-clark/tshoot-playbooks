@@ -1,0 +1,29 @@
+
+
+auto lo
+iface lo inet loopback
+ address 10.1.1.1/32
+
+
+
+
+auto eth0
+iface eth0 inet dhcp
+
+auto swp1
+iface swp1
+
+auto swp51
+iface swp51
+ address 10.1.1.1/32
+
+auto swp52
+iface swp52
+ address 10.1.1.1/32
+
+auto bridge100
+iface bridge100
+ address 192.168.100.1/24
+ bridge-ports swp1
+
+

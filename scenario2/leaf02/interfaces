@@ -1,0 +1,32 @@
+
+
+auto lo
+iface lo inet loopback
+
+
+
+
+auto eth0
+iface eth0 inet dhcp
+
+auto swp2
+iface swp2
+
+auto swp49
+iface swp49
+
+auto swp50
+iface swp50
+
+auto bond-xlink
+iface bond-xlink
+ bond-slaves swp49 swp50
+
+auto bond-xlink.200
+iface bond-xlink.200
+
+auto bridge200
+iface bridge200
+ bridge-ports swp2 bond-xlink.200
+ bridge-vlan-aware yes
+ bridge-pvid 1

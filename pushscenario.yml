@@ -1,0 +1,62 @@
+---
+  - hosts: all
+    sudo: True
+
+    tasks:
+
+    - name: copy over ineterfaces for each ansible_hostname in scenario directory
+      copy: src=./scenario{{ s }}/{{ ansible_hostname }}/interfaces dest=/etc/network/
+
+    - name: check if Quagga.conf exists
+      local_action: stat path=./scenario{{ s }}/{{ ansible_hostname }}/Quagga.conf
+      register: file
+      ignore_errors: True
+
+    - name: copy over Quagga.conf for each ansible_hostname in scenario directory
+      copy: src=./scenario{{ s }}/{{ ansible_hostname }}/Quagga.conf dest=/etc/quagga/
+      when: file.stat.exists
+
+    - name: reload interfaces on CL VMs
+      command: ifreload -a
+      when: '"Cumulus" in ansible_lsb.id'
+
+    - name: reload zebra 
+      command: systemctl restart zebra
+      when: '"Cumulus" in ansible_lsb.id'
+
+    - name: reload ospfd
+      command: systemctl restart ospfd
+      when: '"Cumulus" in ansible_lsb.id'
+
+    - name: reload bgpd
+      command: systemctl restart bgpd
+      when: '"Cumulus" in ansible_lsb.id'
+
+    - name: Force Interfaces Down
+      command: ifdown {{item}}
+      with_items:
+        - lo
+        - eth1
+        - eth1.100
+        - eth1.200
+        - eth2
+      when: '"Cumulus" not in ansible_lsb.id'
+    
+    - name: Force Interfaces Up
+      command: ifup {{item}}
+      with_items:
+        - lo
+        - eth1
+        - eth1.100
+        - eth1.200
+        - eth2
+      when: '"Cumulus" not in ansible_lsb.id'
+
+    - name: Put eth1 in promisc mode
+      command: sudo ifconfig eth1 promisc
+      when: '"Cumulus" not in ansible_lsb.id'
+
+    - name: Put eth2 in promisc mode
+      command: sudo ifconfig eth2 promisc
+      when: '"Cumulus" not in ansible_lsb.id'
+

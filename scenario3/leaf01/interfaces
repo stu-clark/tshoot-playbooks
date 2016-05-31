@@ -1,0 +1,62 @@
+
+
+auto lo
+iface lo inet loopback
+ address 10.1.1.1/32
+
+
+
+
+auto eth0
+iface eth0 inet static
+ address 192.168.0.11/24
+
+auto swp1
+iface swp1
+
+auto swp49
+iface swp49
+
+auto swp50
+iface swp50
+
+auto swp51
+iface swp51
+ address 10.1.1.1/32
+
+auto swp52
+iface swp52
+ address 10.1.1.1/32
+
+auto peerlink
+iface peerlink
+ bond-slaves swp49 swp50
+
+auto peerlink.4094
+iface peerlink.4094
+ address 169.254.1.1/30
+ clagd-enable yes
+ clagd-peer-ip 169.254.1.2
+ clagd-backup-ip 192.168.0.11
+ clagd-sys-mac 44:38:39:FF:40:94
+ clagd-priority 8
+
+auto server01bond
+iface server01bond
+ bond-slaves swp1
+ clag-id 1
+ mstpctl-portadminedge yes
+ bridge-access 50
+
+auto bridge
+iface bridge
+ bridge-vlan-aware yes
+ bridge-ports server01bond peerlink
+ bridge-stp on
+ bridge-vids 1-200
+ bridge-pvid 1
+
+auto bridge.50
+iface bridge.50
+ address 192.168.50.253/24
+ address-virtual 00:00:5e:00:01:01 192.168.50.1/24

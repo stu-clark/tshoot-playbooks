@@ -1,0 +1,14 @@
+---
+  - hosts: all
+    sudo: True
+
+    tasks:
+
+    - name: Fetch /etc/network/interfaces from each ansible_hostname and store in scenario{{s}}/filename flat=yes
+
+      fetch: src=/etc/network/interfaces dest=./scenario{{ s }}/{{ ansible_hostname }}/ flat=yes
+
+    - name: Fetch /etc/quagga/Quagga.conf from each ansible_hostname and store in scenario{{s}}/filename flat
+
+      fetch: src=/etc/quagga/Quagga.conf dest=./scenario{{ s }}/{{ ansible_hostname }}/ flat=yes
+

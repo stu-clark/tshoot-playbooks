@@ -1,0 +1,27 @@
+
+
+auto lo
+iface lo inet loopback
+
+
+
+
+auto eth0
+iface eth0 inet dhcp
+
+auto swp1
+iface swp1
+
+auto swp44
+iface swp44
+
+auto swp51
+iface swp51
+
+auto swp52
+iface swp52
+
+auto bridge72
+iface bridge72
+ bridge-ports swp1
+ address 172.16.72.1/24
