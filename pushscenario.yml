@@ -17,12 +17,12 @@
       when: file1.stat.exists
 
     - name: check if daemons exists
-      local_action: stat path=./scenario {{ s}}/{{ ansible_hostname }}/daemons
+      local_action: stat path=./scenario{{ s }}/{{ ansible_hostname }}/daemons
       register: file2
       ignore_errors: True
 
     - name: copy over daemons file for each ansible_hostname in scenario directory 
-      copy: src=./scenario{{ s}}/{{ ansible_hostname }}/daemons dest=/etc/quagga/
+      copy: src=./scenario{{ s }}/{{ ansible_hostname }}/daemons dest=/etc/quagga/
       when: file2.stat.exists
 
     - name: reload interfaces on CL VMs
