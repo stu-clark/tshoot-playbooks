@@ -21,7 +21,8 @@
       register: file2
       ignore_errors: True
 
-    - name: copy: src=./scenario{{ s}}/{{ ansible_hostname }}/daemons dest=/etc/quagga/
+    - name: copy over daemons file for each ansible_hostname in scenario directory 
+      copy: src=./scenario{{ s}}/{{ ansible_hostname }}/daemons dest=/etc/quagga/
       when: file2.stat.exists
 
     - name: reload interfaces on CL VMs
