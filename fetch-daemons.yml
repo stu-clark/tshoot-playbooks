@@ -1,0 +1,10 @@
+---
+  - hosts: all
+    sudo: True
+
+    tasks:
+
+    - name: Fetch /etc/quagga/daemons from each ansible_hostname and store in scenario{{s}}/filename flat=yes
+
+      fetch: src=/etc/quagga/daemons dest=./scenario{{ s }}/{{ ansible_hostname }}/ flat=yes
+

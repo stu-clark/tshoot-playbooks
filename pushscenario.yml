@@ -9,27 +9,27 @@
 
     - name: check if Quagga.conf exists
       local_action: stat path=./scenario{{ s }}/{{ ansible_hostname }}/Quagga.conf
-      register: file
+      register: file1
       ignore_errors: True
 
     - name: copy over Quagga.conf for each ansible_hostname in scenario directory
       copy: src=./scenario{{ s }}/{{ ansible_hostname }}/Quagga.conf dest=/etc/quagga/
-      when: file.stat.exists
+      when: file1.stat.exists
+
+    - name: check if daemons exists
+      local_action: stat path=./scenario {{ s}}/{{ ansible_hostname }}/daemons
+      register: file2
+      ignore_errors: True
+
+    - name: copy: src=./scenario{{ s}}/{{ ansible_hostname }}/daemons dest=/etc/quagga/
+      when: file2.stat.exists
 
     - name: reload interfaces on CL VMs
       command: ifreload -a
       when: '"Cumulus" in ansible_lsb.id'
 
-    - name: reload zebra 
-      command: systemctl restart zebra
-      when: '"Cumulus" in ansible_lsb.id'
-
-    - name: reload ospfd
-      command: systemctl restart ospfd
-      when: '"Cumulus" in ansible_lsb.id'
-
-    - name: reload bgpd
-      command: systemctl restart bgpd
+    - name: reload quagga 
+      command: systemctl restart quagga
       when: '"Cumulus" in ansible_lsb.id'
 
     - name: Force Interfaces Down
