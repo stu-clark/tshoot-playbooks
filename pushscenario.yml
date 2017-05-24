@@ -6,6 +6,7 @@
 
     - name: copy over ineterfaces for each ansible_hostname in scenario directory
       copy: src=./scenario{{ s }}/{{ ansible_hostname }}/interfaces dest=/etc/network/
+      ignore_errors: True
 
     - name: check if Quagga.conf exists
       local_action: stat path=./scenario{{ s }}/{{ ansible_hostname }}/Quagga.conf
@@ -15,6 +16,7 @@
     - name: copy over Quagga.conf for each ansible_hostname in scenario directory
       copy: src=./scenario{{ s }}/{{ ansible_hostname }}/Quagga.conf dest=/etc/quagga/
       when: file1.stat.exists
+      ignore_errors: True
 
     - name: check if daemons exists
       local_action: stat path=./scenario{{ s }}/{{ ansible_hostname }}/daemons
@@ -24,14 +26,17 @@
     - name: copy over daemons file for each ansible_hostname in scenario directory 
       copy: src=./scenario{{ s }}/{{ ansible_hostname }}/daemons dest=/etc/quagga/
       when: file2.stat.exists
+      ignore_errors: True
 
     - name: reload interfaces on CL VMs
       command: ifreload -a
       when: '"Cumulus" in ansible_lsb.id'
+      ignore_errors: True
 
     - name: reload quagga 
       command: systemctl restart quagga
       when: '"Cumulus" in ansible_lsb.id'
+      ignore_errors: True
 
     - name: Force Interfaces Down
       command: ifdown {{item}}
