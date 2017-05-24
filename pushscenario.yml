@@ -50,6 +50,8 @@
       ignore_errors: True
     
     - name: Force Interfaces Up
+      async: 1
+      poll: 0
       command: ifup {{item}}
       with_items:
         - lo
