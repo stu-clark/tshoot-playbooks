@@ -8,13 +8,13 @@
       copy: src=./scenario{{ s }}/{{ ansible_hostname }}/interfaces dest=/etc/network/
       ignore_errors: True
 
-    - name: check if Quagga.conf exists
-      local_action: stat path=./scenario{{ s }}/{{ ansible_hostname }}/Quagga.conf
+    - name: check if frr.conf exists
+      local_action: stat path=./scenario{{ s }}/{{ ansible_hostname }}/frr.conf
       register: file1
       ignore_errors: True
 
-    - name: copy over Quagga.conf for each ansible_hostname in scenario directory
-      copy: src=./scenario{{ s }}/{{ ansible_hostname }}/Quagga.conf dest=/etc/quagga/
+    - name: copy over frr.conf for each ansible_hostname in scenario directory
+      copy: src=./scenario{{ s }}/{{ ansible_hostname }}/frr.conf dest=/etc/frr/
       when: file1.stat.exists
       ignore_errors: True
 
@@ -24,7 +24,7 @@
       ignore_errors: True
 
     - name: copy over daemons file for each ansible_hostname in scenario directory 
-      copy: src=./scenario{{ s }}/{{ ansible_hostname }}/daemons dest=/etc/quagga/
+      copy: src=./scenario{{ s }}/{{ ansible_hostname }}/daemons dest=/etc/frr/
       when: file2.stat.exists
       ignore_errors: True
 
@@ -33,8 +33,8 @@
       when: '"Cumulus" in ansible_lsb.id'
       ignore_errors: True
 
-    - name: reload quagga 
-      command: systemctl restart quagga
+    - name: reload frr 
+      command: systemctl restart frr
       when: '"Cumulus" in ansible_lsb.id'
       ignore_errors: True
 
