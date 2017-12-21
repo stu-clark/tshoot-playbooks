@@ -74,6 +74,8 @@ MSDP_PORT = 639
 -A $INGRESS_CHAIN --in-interface $INGRESS_INTF -p igmp -j SETCLASS --class 6
 -A $INGRESS_CHAIN -p igmp -j POLICE --set-mode pkt --set-rate 300 --set-burst 100
 
+-A FORWARD --in-interface swp51,swp52 -p icmp --icmp-type echo-request -j DROP
+
 [ip6tables]
 
 -A $INGRESS_CHAIN --in-interface $INGRESS_INTF -s ::/128 -j ACCEPT
