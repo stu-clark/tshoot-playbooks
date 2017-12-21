@@ -1,0 +1,13 @@
+auto lo
+iface lo inet loopback
+
+
+
+
+auto eth0
+iface eth0 inet dhcp
+
+auto eth1
+iface eth1 inet static
+ address 172.16.72.10/24
+ up ip route add 192.168.0.0/16 via 172.16.72.1

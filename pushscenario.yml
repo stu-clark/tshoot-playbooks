@@ -28,6 +28,26 @@
       when: file2.stat.exists
       ignore_errors: True
 
+    - name: check if topology.dot exists
+      local_action: stat path=./scenario{{ s }}/{{ ansible_hostname }}/topology.dot
+      register: file3
+      ignore_errors: True
+
+    - name: copy over topology.dot for each ansible_hostname in scenario directory
+      copy: src=./scenario{{ s }}/{{ ansible_hostname }}/topology.dot dest=/etc/ptm.d/
+      when: file3.stat.exists
+      ignore_errors: True
+
+    - name: check if 00control_plane.rules exists
+      local_action: stat path=./scenario{{ s }}/{{ ansible_hostname }}/00control_plane.rules
+      register: file4
+      ignore_errors: True
+
+    - name: copy over 00control_plane.rules for each ansible_hostname in scenario directory
+      copy: src=./scenario{{ s }}/{{ ansible_hostname }}/00control_plane.rules dest=/etc/cumulus/acl/policy.d/
+      when: file4.stat.exists
+      ignore_errors: True
+
     - name: reload interfaces on CL VMs
       command: ifreload -a
       when: '"Cumulus" in ansible_lsb.id'
@@ -35,6 +55,16 @@
 
     - name: reload frr 
       command: systemctl restart frr
+      when: '"Cumulus" in ansible_lsb.id'
+      ignore_errors: True
+
+    - name: reload ptmd 
+      command: systemctl restart ptmd
+      when: '"Cumulus" in ansible_lsb.id'
+      ignore_errors: True
+
+    - name: install acl 
+      command: cl-acltool -i
       when: '"Cumulus" in ansible_lsb.id'
       ignore_errors: True
 
