@@ -16,3 +16,11 @@
 
       fetch: src=/etc/frr/daemons dest=./scenario{{ s }}/{{ ansible_hostname }}/ flat=yes
 
+    - name: Fetch /etc/cumulus/acl/policy.d/00control_plane.rules and store in scenario{{s}}/filename flat=yes
+
+      fetch: src=/etc/cumulus/acl/policy.d/00control_plane.rules dest=./scenario{{ s }}/{{ ansible_hostname }}/ flat=yes
+
+    - name: Fetch /etc/ptm.d/topology.dot and store in scenario{{s}}/filename flat=yes
+
+      fetch: src=/etc/ptm.d/topology.dot dest=./scenario{{ s }}/{{ ansible_hostname }}/ flat=yes
+

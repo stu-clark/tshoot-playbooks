@@ -1,0 +1,22 @@
+
+
+auto lo
+iface lo inet loopback
+
+
+
+
+auto eth0
+iface eth0 inet dhcp
+
+auto swp1
+iface swp1
+
+auto swp44
+iface swp44
+
+auto swp51
+iface swp51
+
+auto swp52
+iface swp52
