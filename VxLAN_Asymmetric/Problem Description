@@ -1,0 +1,3 @@
+Problem description
+=======================
+The customer is trying to deploy VxLAN asymmetric routing model, by testing connectivity between server01 in VLAN 10 and server03 in VLAN 20. The two test servers are not able to ping each other, please help to troubleshoot this server connectivity issue
