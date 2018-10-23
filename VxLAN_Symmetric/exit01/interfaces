@@ -1,0 +1,65 @@
+source /etc/network/interfaces.d/*.intf
+
+# The loopback network interface
+auto lo
+iface lo inet loopback
+    # The primary network interface
+    address 10.0.0.41/32
+    clagd-vxlan-anycast-ip 22.22.22.22
+
+# The primary network interface
+auto eth0
+iface eth0 inet dhcp
+
+auto swp44
+iface swp44
+    address 60.0.0.2/30
+    vrf TENANT-A
+
+auto swp49
+iface swp49
+
+auto swp50
+iface swp50
+
+auto swp51
+iface swp51
+
+auto swp52
+iface swp52
+
+auto TENANT-A
+iface TENANT-A
+    vrf-table auto
+
+auto bridge
+iface bridge
+    bridge-ports peerlink
+    bridge-vids 4001
+    bridge-vlan-aware yes
+
+auto peerlink
+iface peerlink
+    bond-slaves swp49 swp50
+
+auto peerlink.4094
+iface peerlink.4094
+    address 169.254.1.1/30
+    clagd-peer-ip 169.254.1.2
+    clagd-priority 1000
+    clagd-sys-mac 44:38:39:ff:22:22
+
+auto vlan4001
+iface vlan4001
+    hwaddress 44:38:39:ff:22:22
+    vlan-id 4001
+    vlan-raw-device bridge
+
+auto vni104001
+iface vni104001
+    bridge-access 4001
+    bridge-learning off
+    mstpctl-bpduguard yes
+    mstpctl-portbpdufilter yes
+    vxlan-id 104001
+    vxlan-local-tunnelip 10.0.0.41

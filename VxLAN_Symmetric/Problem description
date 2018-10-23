@@ -1,0 +1,6 @@
+Problem Description
+======================
+The customer is testing VxLAN symmetric routing model, and reporting the following two issues:
+1. server01 in VLAN 10 is not able to reach server03 in VLAN 20
+2. both servers are not able to reach internet address 88.88.88.88
+Please assist the customer to troubleshoot the above two issues and restore connectivity
