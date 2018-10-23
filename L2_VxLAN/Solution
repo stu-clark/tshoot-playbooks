@@ -1,0 +1,163 @@
+Solution
+======================
++ First gather the information of src/dst pair in question:
+   server01: 192.168.10.10, 00:03:00:11:11:01
+   server03: 192.168.10.20, 00:03:00:33:33:01
+
++ Checking the EVPN routes against the two entries on leaf01 first, route for server01 is missing and only server03's MAC is present:
+  cumulus@leaf01:~$ net show bgp l2vpn evpn route
+  BGP table version is 2, local router ID is 12.12.12.12
+  Status codes: s suppressed, d damped, h history, * valid, > best, i - internal
+  Origin codes: i - IGP, e - EGP, ? - incomplete
+  EVPN type-2 prefix: [2]:[ESI]:[EthTag]:[MAClen]:[MAC]:[IPlen]:[IP]
+  EVPN type-3 prefix: [3]:[EthTag]:[IPlen]:[OrigIP]
+  EVPN type-5 prefix: [5]:[ESI]:[EthTag]:[IPlen]:[IP]
+
+     Network          Next Hop            Metric LocPrf Weight Path
+  Route Distinguisher: 10.0.0.13:2
+  *  [2]:[0]:[0]:[48]:[00:03:00:33:33:01]
+                      10.0.0.13                              0 65020 65013 i
+  *> [2]:[0]:[0]:[48]:[00:03:00:33:33:01]
+                      10.0.0.13                              0 65020 65013 i
+  *> [3]:[0]:[32]:[10.0.0.13]
+                      10.0.0.13                              0 65020 65013 i
+  *  [3]:[0]:[32]:[10.0.0.13]
+                      10.0.0.13                              0 65020 65013 i
+  Route Distinguisher: 12.12.12.12:2
+  *> [3]:[0]:[32]:[12.12.12.12]
+                      12.12.12.12                        32768 i
+
+  Displayed 3 prefixes (5 paths)
+
++ server01 is dual connected to leaf01 and leaf02 in MLAG, initiated a ping test from server01 to server03 to generate some traffic towards the leafs, checking fdb table, MAC of server01 is not being populated in bridge fdb on both leafs:
+  cumulus@leaf01:~$ bridge fdb show | grep 11:11:01
+  cumulus@leaf01:~$
+  cumulus@leaf02:~$ bridge fdb show | grep 11:11:01
+  cumulus@leaf02:~$
+
++ Now checking the MLAG interface configuration, swp1 is configured in Po1 with CLAG ID 1, however Po1 is not part of the bridge on both leafs, this is the reason server01 MAC address is not being learnt by the leaf switches:
+  cumulus@leaf01:~$ ifquery Po1
+  auto Po1
+  iface Po1
+  	bond-slaves swp1
+  	clag-id 1
+
+  cumulus@leaf01:~$ ifquery bridge
+  auto bridge
+  iface bridge
+  	bridge-ports peerlink vni10010
+  	bridge-vids 10
+  	bridge-vlan-aware yes
+
++ Adding Po1 into the bridge by configuring it as an access port for VLAN 10 on both leaf01 and leaf02 with "net add bond Po1 bridge access 10", now server01's MAC address is getting populated into the bridge fdb, also in EVPN route:
+  cumulus@leaf01:~$ bridge fdb show | grep 11:11:01
+  00:03:00:11:11:01 dev Po1 vlan 10 master bridge
+  cumulus@leaf02:~$ bridge fdb show | grep 11:11:01
+  00:03:00:11:11:01 dev Po1 vlan 10 master bridge
+
+  cumulus@leaf01:~$ net show bgp l2vpn evpn route
+  BGP table version is 2, local router ID is 12.12.12.12
+  Status codes: s suppressed, d damped, h history, * valid, > best, i - internal
+  Origin codes: i - IGP, e - EGP, ? - incomplete
+  EVPN type-2 prefix: [2]:[ESI]:[EthTag]:[MAClen]:[MAC]:[IPlen]:[IP]
+  EVPN type-3 prefix: [3]:[EthTag]:[IPlen]:[OrigIP]
+  EVPN type-5 prefix: [5]:[ESI]:[EthTag]:[IPlen]:[IP]
+
+     Network          Next Hop            Metric LocPrf Weight Path
+  Route Distinguisher: 10.0.0.13:2
+  *  [2]:[0]:[0]:[48]:[00:03:00:33:33:01]
+                      10.0.0.13                              0 65020 65013 i
+  *> [2]:[0]:[0]:[48]:[00:03:00:33:33:01]
+                      10.0.0.13                              0 65020 65013 i
+  *> [3]:[0]:[32]:[10.0.0.13]
+                      10.0.0.13                              0 65020 65013 i
+  *  [3]:[0]:[32]:[10.0.0.13]
+                      10.0.0.13                              0 65020 65013 i
+  Route Distinguisher: 12.12.12.12:2
+  *> [2]:[0]:[0]:[48]:[00:03:00:11:11:01]       <<<<<<<<<<<<<<<<<<<<<<
+                      12.12.12.12                        32768 i
+  *> [2]:[0]:[0]:[48]:[02:03:00:11:11:01]
+                      12.12.12.12                        32768 i
+  *> [2]:[0]:[0]:[48]:[02:03:00:11:11:02]
+                      12.12.12.12                        32768 i
+  *> [3]:[0]:[32]:[12.12.12.12]
+                      12.12.12.12                        32768 i
+
+  Displayed 6 prefixes (8 paths)
+
++ Checking on leaf03, it also has both MACs populated into the EVPN route table, however there is still no connectivity between the two servers
+
++ From the EVPN routes, server01's MAC is originated from 12.12.12.12 which is MLAG VxLAN anycast IP, and server03 is sourced from 10.0.0.13 which is leaf03's local tunnel IP. leaf01 is able to ping leaf03's tunnel source IP 10.0.0.13, however leaf03 is not able to ping the MLAG VxLAN anycast IP:
+  cumulus@leaf01:~$ ping 10.0.0.13
+  PING 10.0.0.13 (10.0.0.13) 56(84) bytes of data.
+  64 bytes from 10.0.0.13: icmp_seq=1 ttl=63 time=1.19 ms
+  64 bytes from 10.0.0.13: icmp_seq=2 ttl=63 time=1.41 ms
+  64 bytes from 10.0.0.13: icmp_seq=3 ttl=63 time=1.21 ms
+
+  cumulus@leaf03:~$ ping 12.12.12.12
+  PING 12.12.12.12 (12.12.12.12) 56(84) bytes of data.
+  ^C
+  --- 12.12.12.12 ping statistics ---
+  2 packets transmitted, 0 received, 100% packet loss, time 1000ms
+
++ Now check the route to 12.12.12.12 on leaf03, it's not in the routing table:
+  cumulus@leaf03:~$ net show route 12.12.12.12
+  RIB entry for 12.12.12.12
+  =========================
+  Routing entry for 0.0.0.0/0
+    Known via "kernel", distance 0, metric 0, best
+    Last update 17:26:09 ago
+    * 192.168.0.254, via eth0
+
+
+  FIB entry for 12.12.12.12
+  =========================
+  default via 192.168.0.254 dev eth0
+
++ Check BGP configuration on leaf01 and it appears leaf01 and leaf02 does not have the anycast IP advertised through BGP:
+  router bgp 65011
+    neighbor spine peer-group
+    neighbor spine remote-as external
+    neighbor swp51 interface peer-group spine
+    neighbor swp52 interface peer-group spine
+
+    address-family ipv4 unicast
+      network 10.0.0.11/32
+
+    address-family l2vpn evpn
+      neighbor spine activate
+      advertise-all-vni
+
++ Adding 12.12.12.12/32 route into BGP advertisement on both leaf01 and leaf02, leaf03 is now having the route to this IP and it's reachable from leaf03:
+  cumulus@leaf03:~$ net show route 12.12.12.12
+  RIB entry for 12.12.12.12
+  =========================
+  Routing entry for 12.12.12.12/32
+    Known via "bgp", distance 20, metric 0, best
+    Last update 00:00:19 ago
+    * fe80::4638:39ff:fe00:50, via swp51
+    * fe80::4638:39ff:fe00:1c, via swp52
+
+  FIB entry for 12.12.12.12
+  =========================
+  12.12.12.12  proto bgp  metric 20
+  	nexthop via 169.254.0.1  dev swp51 weight 1 onlink
+  	nexthop via 169.254.0.1  dev swp52 weight 1 onlink
+
++ Checking server connectivity, server01 is able to reach server03 now:
+  cumulus@server01:~$ ping 192.168.10.20
+  PING 192.168.10.20 (192.168.10.20) 56(84) bytes of data.
+  64 bytes from 192.168.10.20: icmp_seq=1 ttl=64 time=2.46 ms
+  64 bytes from 192.168.10.20: icmp_seq=2 ttl=64 time=2.80 ms
+  64 bytes from 192.168.10.20: icmp_seq=3 ttl=64 time=2.47 ms
+
++ Finally correct the source tunnel IP of the VNI interface vni10010, it should be the unique loopback IP of the VTEP, instead of anycast GW IP according to the user guide:
+  cumulus@leaf01:~$ net add vxlan vni10010 vxlan local-tunnelip 10.0.0.11
+  cumulus@leaf01:~$ net commit
+  cumulus@leaf02:~$ net add vxlan vni10010 vxlan local-tunnelip 10.0.0.12
+  cumulus@leaf02:~$ net commit
+
++ In summary the below configuration needs to be corrected:
+  - VxLAN MLAG anycast IP address is not being advertised
+  - L2VNI source tunnel IP on MLAG switches needs to be local unique IP, not anycast IP
+  - Po1 is not configured as access port and needs to be part of bridge

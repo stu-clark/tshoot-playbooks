@@ -1,0 +1,58 @@
+source /etc/network/interfaces.d/*.intf
+
+# The loopback network interface
+auto lo
+iface lo inet loopback
+    # The primary network interface
+    address 10.0.0.11/32
+    clagd-vxlan-anycast-ip 12.12.12.12
+
+# The primary network interface
+auto eth0
+iface eth0 inet dhcp
+
+auto swp1
+iface swp1
+
+auto swp49
+iface swp49
+
+auto swp50
+iface swp50
+
+auto swp51
+iface swp51
+
+auto swp52
+iface swp52
+
+auto Po1
+iface Po1
+    bond-slaves swp1
+    clag-id 1
+
+auto bridge
+iface bridge
+    bridge-ports peerlink vni10010
+    bridge-vids 10
+    bridge-vlan-aware yes
+
+auto peerlink
+iface peerlink
+    bond-slaves swp49 swp50
+
+auto peerlink.4094
+iface peerlink.4094
+    address 169.254.1.1/30
+    clagd-peer-ip 169.254.1.2
+    clagd-priority 1000
+    clagd-sys-mac 44:38:39:ff:00:22
+
+auto vni10010
+iface vni10010
+    bridge-access 10
+    bridge-learning off
+    mstpctl-bpduguard yes
+    mstpctl-portbpdufilter yes
+    vxlan-id 10010
+    vxlan-local-tunnelip 12.12.12.12
