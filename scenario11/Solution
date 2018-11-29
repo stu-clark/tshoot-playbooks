@@ -1,0 +1,419 @@
++ Gather the src/dst information in question to troubleshoot this issue:
+server01: 192.168.10.10, 00:03:00:11:11:01
+server03: 192.168.20.10, 00:03:00:33:33:01
+internet: 88.88.88.88, outside of the VxLAN fabric
+
++ First focus on connectivity issue between server01 and server03. Checking EVPN routes on the leafs, since the leafs are the default GW for the servers, so expecting IP/MAC entry appear as EVPN routes. However it appears the EVPN entry for server03 (192.168.20.10) is missing:
+    cumulus@leaf01:~$ net show bgp l2vpn evpn route  type macip
+    BGP table version is 24, local router ID is 12.12.12.12
+    Status codes: s suppressed, d damped, h history, * valid, > best, i - internal
+    Origin codes: i - IGP, e - EGP, ? - incomplete
+    EVPN type-2 prefix: [2]:[ESI]:[EthTag]:[MAClen]:[MAC]:[IPlen]:[IP]
+    EVPN type-3 prefix: [3]:[EthTag]:[IPlen]:[OrigIP]
+    EVPN type-5 prefix: [5]:[ESI]:[EthTag]:[IPlen]:[IP]
+
+       Network          Next Hop            Metric LocPrf Weight Path
+    Route Distinguisher: 10.0.0.13:3
+    *> [2]:[0]:[0]:[48]:[00:03:00:33:33:01]
+                        10.0.0.13                              0 65020 65013 i
+    *  [2]:[0]:[0]:[48]:[00:03:00:33:33:01]
+                        10.0.0.13                              0 65020 65013 i
+    Route Distinguisher: 12.12.12.12:3
+    *> [2]:[0]:[0]:[48]:[00:03:00:11:11:01]
+                        12.12.12.12                        32768 i
+    *> [2]:[0]:[0]:[48]:[00:03:00:11:11:01]:[32]:[192.168.10.10]
+                        12.12.12.12                        32768 i
+    *> [2]:[0]:[0]:[48]:[00:03:00:11:11:01]:[128]:[fe80::203:ff:fe11:1101]
+                        12.12.12.12                        32768 i
+    *> [2]:[0]:[0]:[48]:[02:03:00:11:11:01]
+                        12.12.12.12                        32768 i
+    *> [2]:[0]:[0]:[48]:[02:03:00:11:11:02]
+                        12.12.12.12                        32768 i
+
+    Displayed 6 prefixes (7 paths) (of requested type)
+
+
+    cumulus@leaf03:~$ net show bgp l2vpn evpn route type macip
+    BGP table version is 24, local router ID is 10.0.0.13
+    Status codes: s suppressed, d damped, h history, * valid, > best, i - internal
+    Origin codes: i - IGP, e - EGP, ? - incomplete
+    EVPN type-2 prefix: [2]:[ESI]:[EthTag]:[MAClen]:[MAC]:[IPlen]:[IP]
+    EVPN type-3 prefix: [3]:[EthTag]:[IPlen]:[OrigIP]
+    EVPN type-5 prefix: [5]:[ESI]:[EthTag]:[IPlen]:[IP]
+
+       Network          Next Hop            Metric LocPrf Weight Path
+    Route Distinguisher: 10.0.0.13:3
+    *> [2]:[0]:[0]:[48]:[00:03:00:33:33:01]
+                        10.0.0.13                          32768 i
+    Route Distinguisher: 12.12.12.12:3
+    *> [2]:[0]:[0]:[48]:[00:03:00:11:11:01]
+                        12.12.12.12                            0 65020 65012 i
+    *  [2]:[0]:[0]:[48]:[00:03:00:11:11:01]
+                        12.12.12.12                            0 65020 65011 i
+    *> [2]:[0]:[0]:[48]:[00:03:00:11:11:01]:[32]:[192.168.10.10]
+                        12.12.12.12                            0 65020 65012 i
+    *  [2]:[0]:[0]:[48]:[00:03:00:11:11:01]:[32]:[192.168.10.10]
+                        12.12.12.12                            0 65020 65011 i
+    *  [2]:[0]:[0]:[48]:[00:03:00:11:11:01]:[128]:[fe80::203:ff:fe11:1101]
+                        12.12.12.12                            0 65020 65011 i
+    *> [2]:[0]:[0]:[48]:[00:03:00:11:11:01]:[128]:[fe80::203:ff:fe11:1101]
+                        12.12.12.12                            0 65020 65012 i
+    *  [2]:[0]:[0]:[48]:[02:03:00:11:11:01]
+                        12.12.12.12                            0 65020 65011 i
+    *> [2]:[0]:[0]:[48]:[02:03:00:11:11:01]
+                        12.12.12.12                            0 65020 65011 i
+    *> [2]:[0]:[0]:[48]:[02:03:00:11:11:02]
+                        12.12.12.12                            0 65020 65012 i
+    *  [2]:[0]:[0]:[48]:[02:03:00:11:11:02]
+                        12.12.12.12                            0 65020 65012 i
+
+    Displayed 6 prefixes (11 paths) (of requested type)
+
++ Since this is symmetric VxLAN routing, so it relies on 1:1 mapping between L3VNI and the tenant VRF. The L3VNI (vni104001) is configured under VRF "TENANT_A", now checking leaf03 which is not populating the EVPN entry for server03, it appears the L3 VNI is not showing up:
+    cumulus@leaf03:~$ net show bgp l2vpn evpn vni
+    Advertise Gateway Macip: Disabled
+    Advertise All VNI flag: Enabled
+    Number of L2 VNIs: 1
+    Number of L3 VNIs: 0      <<<<<<<<<<<<<<<<<<<<
+    Flags: * - Kernel
+      VNI        Type RD                    Import RT                 Export RT                 Tenant VRF
+    * 10020      L2   10.0.0.13:3           65013:10020               65013:10020              Default-IP-Routing-Table
+
++ Checking the configuration for the L3VNI, VLAN 4001 is configured under VRF "TENANT_A", however this VRF is not configured with a VxLAN ID under FRR:
+    cumulus@leaf03:~$ ifquery vlan4001
+    auto vlan4001
+    iface vlan4001
+    	hwaddress 44:38:39:ff:00:12
+    	ip-forward off
+    	vlan-id 4001
+    	vlan-raw-device bridge
+    	vrf TENANT-A
+
++ Adding this configuration into FRR with "net add vrf TENANT-A vni 104001", this adds the below configuration under FRR:
+    vrf TENANT-A
+     vni 104001
+
++ Now checking the VNIs on leaf03 again, now we can see L3VNI being populated into the VNI table:
+    cumulus@leaf03:~$ net show bgp l2vpn evpn vni
+    Advertise Gateway Macip: Disabled
+    Advertise All VNI flag: Enabled
+    Number of L2 VNIs: 1
+    Number of L3 VNIs: 1
+    Flags: * - Kernel
+      VNI        Type RD                    Import RT                 Export RT                 Tenant VRF
+    * 10020      L2   10.0.0.13:2           65013:10020               65013:10020              Default-IP-Routing-Table
+    * 104001     L3   0.0.0.0:3             65013:104001              65013:104001             TENANT-A
+
++ From the above output, the RD is having "0.0.0.0" address, and the L2VNI is showing in the default IP routing table for tenant VRF, which is incorrect, since the SVI should also be under VRF "TENANT-A". Checking vlan 20 SVI configurtion, it is not defined under VRF "TENANT-A":
+    cumulus@leaf03:~$ ifquery vlan20
+    auto vlan20
+    iface vlan20
+    	address 192.168.20.3/24
+    	vlan-id 20
+    	vlan-raw-device bridge
+
++ Correct this error by putting it under VRF "TENANT_A" with "net add vlan 20 vrf TENANT-A", and now the VNIs configured on this VTEP look correct:
+    cumulus@leaf03:~$ net show bgp l2vpn evpn vni
+    Advertise Gateway Macip: Disabled
+    Advertise All VNI flag: Enabled
+    Number of L2 VNIs: 1
+    Number of L3 VNIs: 1
+    Flags: * - Kernel
+      VNI        Type RD                    Import RT                 Export RT                 Tenant VRF
+    * 10020      L2   10.0.0.13:2           65013:10020               65013:10020              TENANT-A
+    * 104001     L3   192.168.20.3:3        65013:104001              65013:104001             TENANT-A
+
++ Now checking the EVPN routes on leaf01, entry for server03 is being populated:
+    cumulus@leaf01:~$ net show bgp l2vpn evpn route
+    BGP table version is 12, local router ID is 12.12.12.12
+    Status codes: s suppressed, d damped, h history, * valid, > best, i - internal
+    Origin codes: i - IGP, e - EGP, ? - incomplete
+    EVPN type-2 prefix: [2]:[ESI]:[EthTag]:[MAClen]:[MAC]:[IPlen]:[IP]
+    EVPN type-3 prefix: [3]:[EthTag]:[IPlen]:[OrigIP]
+    EVPN type-5 prefix: [5]:[ESI]:[EthTag]:[IPlen]:[IP]
+
+       Network          Next Hop            Metric LocPrf Weight Path
+    Route Distinguisher: 10.0.0.13:2
+    *> [2]:[0]:[0]:[48]:[00:03:00:33:33:01]
+                        10.0.0.13                              0 65020 65013 i
+    *  [2]:[0]:[0]:[48]:[00:03:00:33:33:01]
+                        10.0.0.13                              0 65020 65013 i
+    *> [2]:[0]:[0]:[48]:[00:03:00:33:33:01]:[32]:[192.168.20.10]                <<<<<<<<<<<<<<<<<<<<<
+                        10.0.0.13                              0 65020 65013 i
+    *  [2]:[0]:[0]:[48]:[00:03:00:33:33:01]:[32]:[192.168.20.10]
+                        10.0.0.13                              0 65020 65013 i
+    *> [3]:[0]:[32]:[10.0.0.13]
+                        10.0.0.13                              0 65020 65013 i
+    *  [3]:[0]:[32]:[10.0.0.13]
+                        10.0.0.13                              0 65020 65013 i
+
++ However server01 still not able to ping server03. With a continuous ping running from server01 to server03, running a tcpdump on server03, no ICMP request coming in, looks like traffic getting dropped along the VxLAN fabric:
+    cumulus@server03:~$ sudo tcpdump -enni eth1 icmp
+    tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+    listening on eth1, link-type EN10MB (Ethernet), capture size 262144 bytes
+
++ running a capture on leaf01/leaf02 for ICMP request in the ingress direction, confirmed the ICMP request is being captured on leaf01:
+    cumulus@leaf01:~$ sudo tcpdump -enni swp1 icmp
+    [sudo] password for cumulus:
+    tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+    listening on swp1, link-type EN10MB (Ethernet), capture size 262144 bytes
+    23:04:42.208954 00:03:00:11:11:01 > 00:00:5e:01:01:22, ethertype IPv4 (0x0800), length 98: 192.168.10.10 > 192.168.20.10: ICMP echo request, id 25050, seq 37666, length 64
+    23:04:43.209092 00:03:00:11:11:01 > 00:00:5e:01:01:22, ethertype IPv4 (0x0800), length 98: 192.168.10.10 > 192.168.20.10: ICMP echo request, id 25050, seq 37667, length 64
+    23:04:44.208749 00:03:00:11:11:01 > 00:00:5e:01:01:22, ethertype IPv4 (0x0800), length 98: 192.168.10.10 > 192.168.20.10: ICMP echo request, id 25050, seq 37668, length 64
+
++ Now capturing the VxLAN encapsulated traffic in the egress direction on leaf01, this traffic can be captured:
+    cumulus@leaf01:~$ sudo tcpdump -enni swp51 udp
+    tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+    listening on swp51, link-type EN10MB (Ethernet), capture size 262144 bytes
+    23:06:39.208530 44:38:39:00:00:53 > 44:38:39:00:00:54, ethertype IPv4 (0x0800), length 148: 12.12.12.12.52231 > 10.0.0.13.4789: VXLAN, flags [I] (0x08), vni 104001
+    44:38:39:ff:00:12 > 44:38:39:ff:00:12, ethertype IPv4 (0x0800), length 98: 192.168.10.10 > 192.168.20.10: ICMP echo request, id 25050, seq 37783, length 64
+    23:06:40.209072 44:38:39:00:00:53 > 44:38:39:00:00:54, ethertype IPv4 (0x0800), length 148: 12.12.12.12.52231 > 10.0.0.13.4789: VXLAN, flags [I] (0x08), vni 104001
+    44:38:39:ff:00:12 > 44:38:39:ff:00:12, ethertype IPv4 (0x0800), length 98: 192.168.10.10 > 192.168.20.10: ICMP echo request, id 25050, seq 37784, length 64
+    23:06:41.209419 44:38:39:00:00:53 > 44:38:39:00:00:54, ethertype IPv4 (0x0800), length 148: 12.12.12.12.52231 > 10.0.0.13.4789: VXLAN, flags [I] (0x08), vni 104001
+    44:38:39:ff:00:12 > 44:38:39:ff:00:12, ethertype IPv4 (0x0800), length 98: 192.168.10.10 > 192.168.20.10: ICMP echo request, id 25050, seq 37785, length 64
+
++ Now capture this VxLAN encapsulated traffic on leaf03 in the ingress direction, This traffic can also be captured:
+    cumulus@leaf03:~$ sudo tcpdump -enni swp51 udp
+    tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+    listening on swp51, link-type EN10MB (Ethernet), capture size 262144 bytes
+    23:10:43.213510 44:38:39:00:00:50 > 44:38:39:00:00:4f, ethertype IPv4 (0x0800), length 148: 12.12.12.12.52231 > 10.0.0.13.4789: VXLAN, flags [I] (0x08), vni 104001
+    44:38:39:ff:00:12 > 44:38:39:ff:00:12, ethertype IPv4 (0x0800), length 98: 192.168.10.10 > 192.168.20.10: ICMP echo request, id 25050, seq 38027, length 64
+    23:10:44.213285 44:38:39:00:00:50 > 44:38:39:00:00:4f, ethertype IPv4 (0x0800), length 148: 12.12.12.12.52231 > 10.0.0.13.4789: VXLAN, flags [I] (0x08), vni 104001
+    44:38:39:ff:00:12 > 44:38:39:ff:00:12, ethertype IPv4 (0x0800), length 98: 192.168.10.10 > 192.168.20.10: ICMP echo request, id 25050, seq 38028, length 64
+    23:10:45.213961 44:38:39:00:00:50 > 44:38:39:00:00:4f, ethertype IPv4 (0x0800), length 148: 12.12.12.12.52231 > 10.0.0.13.4789: VXLAN, flags [I] (0x08), vni 104001
+    44:38:39:ff:00:12 > 44:38:39:ff:00:12, ethertype IPv4 (0x0800), length 98: 192.168.10.10 > 192.168.20.10: ICMP echo request, id 25050, seq 38029, length 64
+
++ Another capture on leaf03 swp1, there is no decapsulated ICMP traffic egressing out of swp1.
+
++ Looking a bit closer on the capture above for VxLAN encapsulated traffic, the ICMP traffic is VxLAN encapsulated with the same src/dst MAC 44:38:39:ff:00:12. Checking configuration for VLAN 4001 which is used for L3VNI, the same MAC is configured:
+    cumulus@leaf01:~$ ifquery vlan4001
+    auto vlan4001
+    iface vlan4001
+    	hwaddress 44:38:39:ff:00:12
+    	ip-forward off
+    	vlan-id 4001
+    	vlan-raw-device bridge
+    	vrf TENANT-A
+
+    cumulus@leaf03:~$ ifquery vlan4001
+    auto vlan4001
+    iface vlan4001
+    	hwaddress 44:38:39:ff:00:12
+    	ip-forward off
+    	vlan-id 4001
+    	vlan-raw-device bridge
+    	vrf TENANT-A
+
++ Removing the hard coded MAC address on leaf03 since it's not in MLAG, with "net del vlan 4001 hwaddress", and then bounced vlan4001, this corrected the MAC address of vlan4001, which is now different than the hard coded MAC on MLAG pair leaf01 and leaf02, however the ping is still not working.
+
++ From the previous capture, it appears the encapsulated VxLAN traffic is being received by leaf03, however it failed to be decapsulated since there is no traffic in the egress direction. This traffic hits L3VNI first on leaf03, checking the configuration of L3VNI/VLAN4001 on leaf03, it has "ip-forward off", which should only be used for L2 environment:
+    cumulus@leaf03:~$ ifquery vlan4001
+    auto vlan4001
+    iface vlan4001
+    	ip-forward off
+    	vlan-id 4001
+    	vlan-raw-device bridge
+    	vrf TENANT-A
+
++ removing this configuration with "net del vlan 4001 ip forward off" on all the VTEPs, this restored connectivity between server01 and server03.
+
+
+
+
+================================================================================================================================================================
+
+
+
+
+Now moving onto the second issue, which is servers not able to reach internet @ 88.88.88.88.
+
++ First check EVPN route on leaf01 again, for type-5 route and see if 88.88.88.88 is populated in the EVPN route table:
+    cumulus@leaf01:~$ net show bgp l2vpn evpn route type prefix
+    BGP table version is 3, local router ID is 12.12.12.12
+    Status codes: s suppressed, d damped, h history, * valid, > best, i - internal
+    Origin codes: i - IGP, e - EGP, ? - incomplete
+    EVPN type-2 prefix: [2]:[ESI]:[EthTag]:[MAClen]:[MAC]:[IPlen]:[IP]
+    EVPN type-3 prefix: [3]:[EthTag]:[IPlen]:[OrigIP]
+    EVPN type-5 prefix: [5]:[ESI]:[EthTag]:[IPlen]:[IP]
+
+       Network          Next Hop            Metric LocPrf Weight Path
+    Route Distinguisher: 22.22.22.22:1
+    *  [5]:[0]:[0]:[32]:[10.0.0.41]
+                        22.22.22.22                            0 65020 65041 i
+    *> [5]:[0]:[0]:[32]:[10.0.0.41]
+                        22.22.22.22                            0 65020 65041 i
+    *  [5]:[0]:[0]:[32]:[10.0.0.42]
+                        22.22.22.22                            0 65020 65042 i
+    *> [5]:[0]:[0]:[32]:[10.0.0.42]
+                        22.22.22.22                            0 65020 65042 i
+    *  [5]:[0]:[0]:[32]:[22.22.22.22]
+                        22.22.22.22                            0 65020 65041 i
+    *> [5]:[0]:[0]:[32]:[22.22.22.22]
+                        22.22.22.22                            0 65020 65041 i
+
+    Displayed 3 prefixes (6 paths) (of requested type)
+  above output shows that the internet route 898.88.88.88 is not populated as type-5 route.
+
++ On the exit switches, first check if there are BGP routes populated into VRF TENANT-A, and this is confirmed the internet route in question is there:
+    cumulus@exit01:~$ ip route show vrf TENANT-A
+    unreachable default  metric 4278198272
+    60.0.0.0/30 dev swp44  proto kernel  scope link  src 60.0.0.2
+    88.88.88.88 via 60.0.0.1 dev swp44  proto bgp  metric 20
+
++ On the exit switch, the type-5 routes are /32 loopback IP addresses on the VTEPs, which supposed to be used for VxLAN underlay communication, and should not be populated into the EVPN table as type-5 routes. The fact that these /32 routes are showing up as type-5 indicates a potential mis-configuration for tyep-5 route advertisement. Checking BGP configuration on exit01, it appears "advertise ipv4 unicast" is not configured under vrf TENANT-A BGP EVPN address family, but advertised under the underlay:
+    vrf TENANT-A
+      vni 104001
+
+    router bgp 65041
+      neighbor spine peer-group
+      neighbor spine remote-as external
+      neighbor swp51 interface peer-group spine
+      neighbor swp52 interface peer-group spine
+
+      address-family ipv4 unicast
+        network 10.0.0.41/32
+        network 22.22.22.22/32
+
+      address-family l2vpn evpn
+        neighbor spine activate
+        advertise-all-vni
+        advertise ipv4 unicast
+
+    router bgp 65041 vrf TENANT-A
+      bgp router-id 10.0.0.41
+      neighbor 60.0.0.1 remote-as external
+
++ Correct the above mis-configuration with the below NCLU commands on both exit01 and exit02:
+    - net del bgp l2vpn evpn advertise ipv4 unicast
+    - net add bgp vrf TENANT-A l2vpn evpn advertise ipv4 unicast
+
++ Now checking on exit01 switch again for type-5 route, it is now showing the internet address is being populated correctly:
+    cumulus@exit01:~$ net show bgp l2vpn evpn route type prefix
+    BGP table version is 4, local router ID is 22.22.22.22
+    Status codes: s suppressed, d damped, h history, * valid, > best, i - internal
+    Origin codes: i - IGP, e - EGP, ? - incomplete
+    EVPN type-2 prefix: [2]:[ESI]:[EthTag]:[MAClen]:[MAC]:[IPlen]:[IP]
+    EVPN type-3 prefix: [3]:[EthTag]:[IPlen]:[OrigIP]
+    EVPN type-5 prefix: [5]:[ESI]:[EthTag]:[IPlen]:[IP]
+
+       Network          Next Hop            Metric LocPrf Weight Path
+    Route Distinguisher: 10.0.0.41:2
+    *> [5]:[0]:[0]:[32]:[88.88.88.88]
+                        22.22.22.22              0             0 25253 i
+
+    Displayed 1 prefixes (1 paths) (of requested type)
+
++ Now checking the internet route 88.88.88.88/32 on leaf01, even though it is showing up as BGP EVPN type-5 route, however it is not installed under VRF TENANT-A:
+    cumulus@leaf01:~$ net show bgp l2vpn evpn route type prefix
+    BGP table version is 6, local router ID is 12.12.12.12
+    Status codes: s suppressed, d damped, h history, * valid, > best, i - internal
+    Origin codes: i - IGP, e - EGP, ? - incomplete
+    EVPN type-2 prefix: [2]:[ESI]:[EthTag]:[MAClen]:[MAC]:[IPlen]:[IP]
+    EVPN type-3 prefix: [3]:[EthTag]:[IPlen]:[OrigIP]
+    EVPN type-5 prefix: [5]:[ESI]:[EthTag]:[IPlen]:[IP]
+
+       Network          Next Hop            Metric LocPrf Weight Path
+    Route Distinguisher: 10.0.0.41:2
+    *  [5]:[0]:[0]:[32]:[88.88.88.88]
+                        22.22.22.22                            0 65020 65041 25253 i
+    *> [5]:[0]:[0]:[32]:[88.88.88.88]
+                        22.22.22.22                            0 65020 65041 25253 i
+    Route Distinguisher: 10.0.0.42:2
+    *> [5]:[0]:[0]:[32]:[88.88.88.88]
+                        22.22.22.22                            0 65020 65042 25253 i
+    *  [5]:[0]:[0]:[32]:[88.88.88.88]
+                        22.22.22.22                            0 65020 65042 25253 i
+
+    Displayed 2 prefixes (4 paths) (of requested type)
+    cumulus@leaf01:~$
+    cumulus@leaf01:~$ ip route show vrf TENANT-A
+    unreachable default  metric 4278198272
+    192.168.10.0/24 dev vlan10  proto kernel  scope link  src 192.168.10.1
+    192.168.10.0/24 dev vlan10-v0  proto kernel  scope link  src 192.168.10.254
+    192.168.20.10 via 10.0.0.13 dev vlan4001  proto bgp  metric 20 onlink
+
++ Checking on exit01 for L3VNI status, it shows no VNI defined which is wrong:
+    cumulus@exit01:~$ net show bgp l2vpn evpn vni
+    Advertise Gateway Macip: Disabled
+    Advertise All VNI flag: Enabled
+    Number of L2 VNIs: 0
+    Number of L3 VNIs: 0      <<<<<<<<<<<<<<<<<<
+    Flags: * - Kernel
+      VNI        Type RD                    Import RT                 Export RT                 Tenant VRF
+
++ Checking interfaces status, it appears vlan 4001 is not associated under VRF, and vni104001 is not associated to bridge:
+    cumulus@exit01:~$ net show interface
+    State  Name           Spd  MTU    Mode           LLDP                     Summary
+    -----  -------------  ---  -----  -------------  -----------------------  -------------------------
+    UP     lo             N/A  65536  Loopback                                IP: 127.0.0.1/8
+           lo                                                                 IP: 10.0.0.41/32
+           lo                                                                 IP: 22.22.22.22/32
+           lo                                                                 IP: ::1/128
+    UP     eth0           1G   1500   Mgmt           oob-mgmt-switch (swp12)  IP: 192.168.0.41/24(DHCP)
+    UP     swp44          1G   1500   Interface/L3   internet (swp1)          Master: TENANT-A(UP)
+           swp44                                                              IP: 60.0.0.2/30
+    UP     swp49          1G   1500   BondMember     exit02 (swp49)           Master: peerlink(UP)
+    UP     swp50          1G   1500   BondMember     exit02 (swp50)           Master: peerlink(UP)
+    UP     swp51          1G   1500   NotConfigured  spine01 (swp30)
+    UP     swp52          1G   1500   NotConfigured  spine02 (swp30)
+    UP     TENANT-A       N/A  65536  NotConfigured
+    UP     bridge         N/A  1500   Bridge/L2
+    UP     peerlink       2G   1500   LACP                                    Master: bridge(UP)
+           peerlink                                                           Bond Members: swp49(UP)
+           peerlink                                                           Bond Members: swp50(UP)
+    UP     peerlink.4094  2G   1500   SubInt/L3                               IP: 169.254.1.1/30
+    UP     vlan4001       N/A  1500   NotConfigured           <<<<<<<<<<<<<<
+    UP     vni104001      N/A  1500   NotConfigured           <<<<<<<<<<<<<<
+
++ Checking vlan 4001 configuration, it needs to be under VRF "TENANT-A", and vni104001 should be part of the bridge:
+    cumulus@exit01:~$ ifquery vlan4001
+    auto vlan4001
+    iface vlan4001
+    	hwaddress 44:38:39:ff:22:22
+    	vlan-id 4001
+    	vlan-raw-device bridge
+
+    cumulus@exit01:~$ ifquery bridge
+    auto bridge
+    iface bridge
+    	bridge-ports peerlink
+    	bridge-vids 4001
+    	bridge-vlan-aware yes
+
++ Correct the above mis-configuration with below NCLU commands on both exit switches:
+    - net add vlan 4001 vrf TENANT-A
+    - net add vxlan vni104001 bridge access 4001
+
++ Checking the L3VNI status on exit switches again, it is now showing up correctly:
+    cumulus@exit01:~$ net show bgp l2vpn evpn vni
+    Advertise Gateway Macip: Disabled
+    Advertise All VNI flag: Enabled
+    Number of L2 VNIs: 0
+    Number of L3 VNIs: 1
+    Flags: * - Kernel
+      VNI        Type RD                    Import RT                 Export RT                 Tenant VRF
+    * 104001     L3   10.0.0.41:2           65041:104001              65041:104001             TENANT-A
+
++ Now checking the route on leaf01 under VRF TENANT-A, internet route 88.88.88.88/32 is now populated in kernel as well:
+    cumulus@leaf01:~$ ip route show vrf TENANT-A
+    unreachable default  metric 4278198272
+    88.88.88.88 via 22.22.22.22 dev vlan4001  proto bgp  metric 20 onlink       <<<<<<<<<<<<<<<<<<<
+    192.168.10.0/24 dev vlan10  proto kernel  scope link  src 192.168.10.1
+    192.168.10.0/24 dev vlan10-v0  proto kernel  scope link  src 192.168.10.254
+    192.168.20.10 via 10.0.0.13 dev vlan4001  proto bgp  metric 20 onlink
+
++ At this point connectivity from both servers to the internet 88.88.88.88 is restored:
+    cumulus@server01:~$ ping 88.88.88.88
+    PING 88.88.88.88 (88.88.88.88) 56(84) bytes of data.
+    64 bytes from 88.88.88.88: icmp_seq=1 ttl=62 time=2.86 ms
+    64 bytes from 88.88.88.88: icmp_seq=2 ttl=62 time=2.47 ms
+    64 bytes from 88.88.88.88: icmp_seq=3 ttl=62 time=2.81 ms
+
+    cumulus@server03:~$ ping 88.88.88.88
+    PING 88.88.88.88 (88.88.88.88) 56(84) bytes of data.
+    64 bytes from 88.88.88.88: icmp_seq=1 ttl=62 time=2.69 ms
+    64 bytes from 88.88.88.88: icmp_seq=2 ttl=62 time=2.52 ms
+    64 bytes from 88.88.88.88: icmp_seq=3 ttl=62 time=2.67 ms
+
+
+***** Note: tcpdump used here for data plane traffic since this is VX environment, production environment requires SPAN capture for data plane traffic.

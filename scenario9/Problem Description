@@ -1,0 +1,3 @@
+Problem description
+======================
+Customer is trying to setup a pure L2 only VxLAN fabric, and testing connectivity between two servers (server01 and server03) in VLAN 10 to start with. The two servers are not able to reach each other, please troubleshoot the server connectivity issue between server01 and server03

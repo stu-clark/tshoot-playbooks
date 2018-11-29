@@ -1,0 +1,155 @@
+Solution
+========================
++ First obtain information on src/dst host pair that is not able to communicate:
+server01: 192.168.10.10/24 00:03:00:11:11:01
+server03: 192.168.20.10/24 00:03:00:33:33:01
+
++ Check the BGP EVPN routes on leaf01 first, there are only routes from the CLAG pair (12.12.12.12), but not from leaf03 which should be sourced from 10.0.0.13:
+  cumulus@leaf01:~$ net show bgp l2vpn evpn route
+  BGP table version is 44, local router ID is 12.12.12.12
+  Status codes: s suppressed, d damped, h history, * valid, > best, i - internal
+  Origin codes: i - IGP, e - EGP, ? - incomplete
+  EVPN type-2 prefix: [2]:[ESI]:[EthTag]:[MAClen]:[MAC]:[IPlen]:[IP]
+  EVPN type-3 prefix: [3]:[EthTag]:[IPlen]:[OrigIP]
+  EVPN type-5 prefix: [5]:[ESI]:[EthTag]:[IPlen]:[IP]
+
+     Network          Next Hop            Metric LocPrf Weight Path
+  Route Distinguisher: 12.12.12.12:2
+  *> [2]:[0]:[0]:[48]:[00:03:00:11:11:01]
+                      12.12.12.12                        32768 i
+  *> [2]:[0]:[0]:[48]:[00:03:00:11:11:01]:[32]:[192.168.10.10]
+                      12.12.12.12                        32768 i
+  *> [2]:[0]:[0]:[48]:[00:03:00:11:11:01]:[128]:[fe80::203:ff:fe11:1101]
+                      12.12.12.12                        32768 i
+  *> [2]:[0]:[0]:[48]:[02:03:00:11:11:01]
+                      12.12.12.12                        32768 i
+  *> [2]:[0]:[0]:[48]:[02:03:00:11:11:02]
+                      12.12.12.12                        32768 i
+  *> [3]:[0]:[32]:[12.12.12.12]
+                      12.12.12.12                        32768 i
+
+  Displayed 6 prefixes (6 paths)
+
++ On leaf03, checking the bridge fdb table, server03's MAC address is being populated and learnt from swp1 as expected, however it's not in the EVPN table:
+  cumulus@leaf03:~$ bridge fdb show | grep 33:33:01
+  00:03:00:33:33:01 dev swp1 vlan 20 master bridge
+
++ Now checking the BGP configuration on leaf03, it does not have advertise vni configured:
+  address-family l2vpn evpn
+    neighbor spine activate
+
++ Adding configuration to advertise the VNI with "net add bgp l2vpn evpn advertise-all-vni", now checking the EVPN routes, MAC address for server03 is getting populated correctly:
+  cumulus@leaf03:~$ net show bgp l2vpn evpn route
+  BGP table version is 5, local router ID is 10.0.0.13
+  Status codes: s suppressed, d damped, h history, * valid, > best, i - internal
+  Origin codes: i - IGP, e - EGP, ? - incomplete
+  EVPN type-2 prefix: [2]:[ESI]:[EthTag]:[MAClen]:[MAC]:[IPlen]:[IP]
+  EVPN type-3 prefix: [3]:[EthTag]:[IPlen]:[OrigIP]
+  EVPN type-5 prefix: [5]:[ESI]:[EthTag]:[IPlen]:[IP]
+
+     Network          Next Hop            Metric LocPrf Weight Path
+  Route Distinguisher: 10.0.0.13:2
+  *> [3]:[0]:[32]:[10.0.0.13]
+                      10.0.0.13                          32768 i
+  Route Distinguisher: 10.0.0.13:3
+  *> [2]:[0]:[0]:[48]:[00:03:00:33:33:01]
+                      10.0.0.13                          32768 i
+  *> [2]:[0]:[0]:[48]:[00:03:00:33:33:01]:[32]:[192.168.20.10]
+                      10.0.0.13                          32768 i
+  *> [2]:[0]:[0]:[48]:[00:03:00:33:33:01]:[128]:[fe80::203:ff:fe33:3301]
+                      10.0.0.13                          32768 i
+  *> [3]:[0]:[32]:[10.0.0.13]
+                      10.0.0.13                          32768 i
+  <snip>
+
++ Ping still not working, now checking the interface status from "net show interface", vni10020 for VLAN 20 is showing as "not configured" on leaf01 and leaf02:
+  cumulus@leaf01:~$ net show interface
+  State  Name           Spd  MTU    Mode           LLDP                    Summary
+  -----  -------------  ---  -----  -------------  ----------------------  -------------------------
+  <snip>
+  UP     vni10010       N/A  1500   Trunk/L2                               Master: bridge(UP)
+  UP     vni10020       N/A  1500   NotConfigured
+
++ Checking the configuration for this L2VNI, it does not have VLAN 20 assigned:
+  cumulus@leaf01:~$ ifquery vni10020
+  auto vni10020
+  iface vni10020
+  	bridge-learning off
+  	mstpctl-bpduguard yes
+  	mstpctl-portbpdufilter yes
+  	vxlan-id 10020
+  	vxlan-local-tunnelip 10.0.0.11
+
++ Adding this configuration under the L2VNI with "net add vxlan vni10020 bridge access 20", this will also add vni10020 into the bridge, which was also missing, now it's showing up as expected:
+  cumulus@leaf01:~$ net show interface
+  State  Name           Spd  MTU    Mode           LLDP                    Summary
+  -----  -------------  ---  -----  -------------  ----------------------  -------------------------
+  <snip>
+  UP     vni10010       N/A  1500   Trunk/L2                               Master: bridge(UP)
+  UP     vni10020       N/A  1500   Trunk/L2                               Master: bridge(UP)
+
++ Ping still not working, with a continuous ping running from server01 to server03, tcpdump on server03 is showing ICMP request from server01 is being received, and ICMP reply is being sent out, so it appears the ICMP reply from server03 to server01 is being lost in this direction:
+  cumulus@server03:~$ sudo tcpdump -enni eth1
+  tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+  listening on eth1, link-type EN10MB (Ethernet), capture size 262144 bytes
+  23:27:06.980343 44:38:39:00:00:03 > 00:03:00:33:33:01, ethertype IPv4 (0x0800), length 98: 192.168.10.10 > 192.168.20.10: ICMP echo request, id 22648, seq 596, length 64
+  23:27:06.980367 00:03:00:33:33:01 > 44:38:39:00:00:23, ethertype IPv4 (0x0800), length 98: 192.168.20.10 > 192.168.10.10: ICMP echo reply, id 22648, seq 596, length 64
+  23:27:07.981427 44:38:39:00:00:03 > 00:03:00:33:33:01, ethertype IPv4 (0x0800), length 98: 192.168.10.10 > 192.168.20.10: ICMP echo request, id 22648, seq 597, length 64
+  23:27:07.981457 00:03:00:33:33:01 > 44:38:39:00:00:23, ethertype IPv4 (0x0800), length 98: 192.168.20.10 > 192.168.10.10: ICMP echo reply, id 22648, seq 597, length 64
+
++ Capture on swp1 of leaf03 first to confirm if ICMP reply is being received, and yes it is:
+  cumulus@leaf03:~$ sudo tcpdump -enni swp1 icmp
+  tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+  listening on swp1, link-type EN10MB (Ethernet), capture size 262144 bytes
+  10:51:12.829695 44:38:39:00:00:03 > 00:03:00:33:33:01, ethertype IPv4 (0x0800), length 98: 192.168.10.10 > 192.168.20.10: ICMP echo request, id 22648, seq 699, length 64
+  10:51:12.830537 00:03:00:33:33:01 > 44:38:39:00:00:23, ethertype IPv4 (0x0800), length 98: 192.168.20.10 > 192.168.10.10: ICMP echo reply, id 22648, seq 699, length 64
+  10:51:13.829792 44:38:39:00:00:03 > 00:03:00:33:33:01, ethertype IPv4 (0x0800), length 98: 192.168.10.10 > 192.168.20.10: ICMP echo request, id 22648, seq 700, length 64
+  10:51:13.830324 00:03:00:33:33:01 > 44:38:39:00:00:23, ethertype IPv4 (0x0800), length 98: 192.168.20.10 > 192.168.10.10: ICMP echo reply, id 22648, seq 700, length 64
+
++ Now capture the VxLAN encapsulated UDP traffic egressing out of leaf03, it appears all UDP traffic being hashed to swp51, and only in one direction from 12.12.12.12 to 10.0.0.13, which is from server01 to server03 direction:
+  cumulus@leaf03:~$ sudo tcpdump -enni swp51 udp
+  tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+  listening on swp51, link-type EN10MB (Ethernet), capture size 262144 bytes
+  10:52:48.829866 44:38:39:00:00:50 > 44:38:39:00:00:4f, ethertype IPv4 (0x0800), length 148: 12.12.12.12.52231 > 10.0.0.13.4789: VXLAN, flags [I] (0x08), vni 10020
+  44:38:39:00:00:03 > 00:03:00:33:33:01, ethertype IPv4 (0x0800), length 98: 192.168.10.10 > 192.168.20.10: ICMP echo request, id 22648, seq 795, length 64
+  10:52:49.830176 44:38:39:00:00:50 > 44:38:39:00:00:4f, ethertype IPv4 (0x0800), length 148: 12.12.12.12.52231 > 10.0.0.13.4789: VXLAN, flags [I] (0x08), vni 10020
+  44:38:39:00:00:03 > 00:03:00:33:33:01, ethertype IPv4 (0x0800), length 98: 192.168.10.10 > 192.168.20.10: ICMP echo request, id 22648, seq 796, length 64
+  10:52:50.830720 44:38:39:00:00:50 > 44:38:39:00:00:4f, ethertype IPv4 (0x0800), length 148: 12.12.12.12.52231 > 10.0.0.13.4789: VXLAN, flags [I] (0x08), vni 10020
+  44:38:39:00:00:03 > 00:03:00:33:33:01, ethertype IPv4 (0x0800), length 98: 192.168.10.10 > 192.168.20.10: ICMP echo request, id 22648, seq 797, length 64
+  10:52:51.829802 44:38:39:00:00:50 > 44:38:39:00:00:4f, ethertype IPv4 (0x0800), length 148: 12.12.12.12.52231 > 10.0.0.13.4789: VXLAN, flags [I] (0x08), vni 10020
+  44:38:39:00:00:03 > 00:03:00:33:33:01, ethertype IPv4 (0x0800), length 98: 192.168.10.10 > 192.168.20.10: ICMP echo request, id 22648, seq 798, length 64
+  10:52:52.829730 44:38:39:00:00:50 > 44:38:39:00:00:4f, ethertype IPv4 (0x0800), length 148: 12.12.12.12.52231 > 10.0.0.13.4789: VXLAN, flags [I] (0x08), vni 10020
+  44:38:39:00:00:03 > 00:03:00:33:33:01, ethertype IPv4 (0x0800), length 98: 192.168.10.10 > 192.168.20.10: ICMP echo request, id 22648, seq 799, length 64
+
++ So it seems the ICMP return traffic from server03 back to server01 is not being VxLAN encapsulated
+
++ Now Checking the interfaces on leaf03, there is no SVI for VLAN10, since this VxLAN asymmetric model, so SVIs and L2VNIs are required for all the VLANs on all VTEPs, as only the ingress VTEP does VxLAN routing and egress VTEP only does bridging. So missing VLAN10 SVI makes it failed to route to the destination subnet:
+  cumulus@leaf03:~$ net show interface
+  State  Name      Spd  MTU    Mode           LLDP                    Summary
+  -----  --------  ---  -----  -------------  ----------------------  -------------------------
+  UP     lo        N/A  65536  Loopback                               IP: 127.0.0.1/8
+         lo                                                           IP: 10.0.0.13/32
+         lo                                                           IP: ::1/128
+  UP     eth0      1G   1500   Mgmt           oob-mgmt-switch (swp8)  IP: 192.168.0.13/24(DHCP)
+  UP     swp1      1G   1500   Trunk/L2       server03 (eth1)         Master: bridge(UP)
+  UP     swp51     1G   1500   NotConfigured  spine01 (swp3)
+  UP     swp52     1G   1500   NotConfigured  spine02 (swp3)
+  UP     bridge    N/A  1500   Bridge/L2
+  UP     vlan20    N/A  1500   Interface/L3                           IP: 192.168.20.3/24     <<<<<<<< vlan10 missing
+  UP     vni10010  N/A  1500   Trunk/L2                               Master: bridge(UP)
+  UP     vni10020  N/A  1500   Trunk/L2                               Master: bridge(UP)
+
++ Adding SVI in VLAN 10 with IP address 192.168.10.3/24 restored connectivity between the two servers:
+  cumulus@server01:~$ ping 192.168.20.10
+  PING 192.168.20.10 (192.168.20.10) 56(84) bytes of data.
+  64 bytes from 192.168.20.10: icmp_seq=1 ttl=63 time=2.76 ms
+  64 bytes from 192.168.20.10: icmp_seq=2 ttl=63 time=3.03 ms
+  64 bytes from 192.168.20.10: icmp_seq=3 ttl=63 time=2.42 ms
+
+
+
+
+So in summary, below configuration changes are required:
+- leaf03 not advertise VNIs
+- leaf01, leaf02 missing config on vni10020
+- leaf03 does not have SVI configured for vlan 20 for asymmetric routing
