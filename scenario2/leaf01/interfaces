@@ -26,8 +26,8 @@ auto bond-xlink
 iface bond-xlink
  bond-slaves swp49 swp50
 
-auto bridge200
-iface bridge200
+auto bridge
+iface bridge
  bridge-ports swp1 bond-xlink.200
  bridge-vlan-aware yes
  bridge-pvid 1
