@@ -1,0 +1,129 @@
+This scenario involves configuraing DHCP relay.  DHCP relay should be configured allowing the traditional bridge interface in this scenario, along with the routed uplinks to allow processing of DHCP packets returning from the server.  This can be done with NCLU as follows:
+
+net add dhcp relay interface bridge100
+net add dhcp relay interface swp52
+net add dhcp relay interface swp51
+net add dhcp relay server 172.16.5.5
+
+This results in the following configuration in /etc/default/isc-dhcp-relay and the dhcrelay service is restarted:
+
+
+cumulus@leaf01:~$ cat /etc/default/isc-dhcp-relay
+# Defaults for isc-dhcp-relay initscript
+# sourced by /etc/init.d/isc-dhcp-relay
+# installed at /etc/default/isc-dhcp-relay by the maintainer scripts
+
+#
+# This is a POSIX shell fragment
+#
+
+# What servers should the DHCP relay forward requests to?
+SERVERS="172.16.5.5"
+
+# On what interfaces should the DHCP relay (dhrelay) serve DHCP requests?
+# Always include the interface towards the DHCP server.
+# This variable requires a -i for each interface configured above.
+# This will be used in the actual dhcrelay command
+# For example, "-i eth0 -i eth1"
+INTF_CMD="-i bridge100 -i swp52 -i swp51"
+
+# Additional options that are passed to the DHCP relay daemon?
+OPTIONS=""
+
+
+
+
+However even after configuring this and restarting dhcrelay, and issuing 'sudo dhclient eth1' on server01, tcpdump shows the DHCP Discover messages going out, but there is no circuit-id field:
+
+
+
+cumulus@leaf01:~$ sudo tcpdump -i swp51 -e -vvvv udp port 67 or port 68 &
+[1] 4349
+cumulus@leaf01:~$ tcpdump: listening on swp51, link-type EN10MB (Ethernet), capture size 262144 bytes
+
+cumulus@leaf01:~$ sudo tcpdump -i swp52 -e -vvvv udp port 67 or port 68 &
+[2] 4355
+cumulus@leaf01:~$ tcpdump: listening on swp52, link-type EN10MB (Ethernet), capture size 262144 bytes
+15:45:54.106349 44:38:39:00:00:24 (oui Unknown) > 44:38:39:00:00:25 (oui Unknown), ethertype IPv4 (0x0800), length 342: (tos 0x0, ttl 64, id 30924, offset 0, flags [DF], proto UDP (17), length 328)
+    10.1.1.1.bootps > 172.16.5.5.bootps: [udp sum ok] BOOTP/DHCP, Request from 00:03:00:11:11:01 (oui Unknown), length 300, hops 1, xid 0x3b7a9903, secs 10, Flags [none] (0x0000)
+	  Gateway-IP 192.168.100.1
+	  Client-Ethernet-Address 00:03:00:11:11:01 (oui Unknown)
+	  Vendor-rfc1048 Extensions
+	    Magic Cookie 0x63825363
+	    DHCP-Message Option 53, length 1: Discover
+	    Hostname Option 12, length 8: "server01"
+	    Parameter-Request Option 55, length 13: 
+	      Subnet-Mask, BR, Time-Zone, Default-Gateway
+	      Domain-Name, Domain-Name-Server, Option 119, Hostname
+	      Netbios-Name-Server, Netbios-Scope, MTU, Classless-Static-Route
+	      NTP
+	    END Option 255, length 0
+	    PAD Option 0, length 0, occurs 31
+
+
+
+The solution is found in the man page for upstream ISC dhcp relay.  This can be viewed with 'man dhcrelay' - note the -a option as below:
+
+
+
+       -a     Append  an  agent  option  field  to  each request before forwarding it to the server.  Agent option fields in
+              responses sent from servers to clients will be stripped before forwarding such responses back to  the  client.
+              The  agent  option field will contain two agent options: the Circuit ID suboption and the Remote ID suboption.
+              Currently, the Circuit ID will be the printable name  of  the  interface  on  which  the  client  request  was
+              received.  The Remote ID will be the System MAC of the device on which Relay is running. Remote ID can also be
+              specified using the remote-id option.
+
+
+This will need to be manually added to the DHCP relay OPTIONS field in /etc/default/isc-dhcp-relay, as this is not currently configurable through NCLU:
+
+# Defaults for isc-dhcp-relay initscript
+# sourced by /etc/init.d/isc-dhcp-relay
+# installed at /etc/default/isc-dhcp-relay by the maintainer scripts
+
+#
+# This is a POSIX shell fragment
+#
+
+# What servers should the DHCP relay forward requests to?
+SERVERS="172.16.5.5"
+
+# On what interfaces should the DHCP relay (dhrelay) serve DHCP requests?
+# Always include the interface towards the DHCP server.
+# This variable requires a -i for each interface configured above.
+# This will be used in the actual dhcrelay command
+# For example, "-i eth0 -i eth1"
+INTF_CMD="-i bridge100 -i swp52 -i swp51"
+
+# Additional options that are passed to the DHCP relay daemon?
+OPTIONS="-a"
+
+
+Then dhcrelay will need to be restarted with "sudo systemctl restart dhcrelay" - now tcpdump will show the circuit-id field injected in Option 82:
+
+
+cumulus@leaf01:~$ 15:49:19.506253 44:38:39:00:00:24 (oui Unknown) > 44:38:39:00:00:25 (oui Unknown), ethertype IPv4 (0x0800), length 344: (tos 0x0, ttl 64, id 2868, offset 0, flags [DF], proto UDP (17), length 330)
+    10.1.1.1.bootps > 172.16.5.5.bootps: [udp sum ok] BOOTP/DHCP, Request from 00:03:00:11:11:01 (oui Unknown), length 302, hops 1, xid 0x3b7a9903, secs 215, Flags [none] (0x0000)
+	  Gateway-IP 192.168.100.1
+	  Client-Ethernet-Address 00:03:00:11:11:01 (oui Unknown)
+	  Vendor-rfc1048 Extensions
+	    Magic Cookie 0x63825363
+	    DHCP-Message Option 53, length 1: Discover
+	    Hostname Option 12, length 8: "server01"
+	    Parameter-Request Option 55, length 13: 
+	      Subnet-Mask, BR, Time-Zone, Default-Gateway
+	      Domain-Name, Domain-Name-Server, Option 119, Hostname
+	      Netbios-Name-Server, Netbios-Scope, MTU, Classless-Static-Route
+	      NTP
+	    Agent-Information Option 82, length 31: 
+	      Circuit-ID SubOption 1, length 9: bridge100
+	      Remote-ID SubOption 2, length 18: a0:00:00:00:00:11^J
+	    END Option 255, length 0
+
+
+The intent of this excercise is to indicate that sometimes behavior is specific to upstream Linux packages and not specific to Cumulus Linux.  Also that tcpdump is a useful tool for control plane behavior...
+
+Reference - https://docs.cumulusnetworks.com/display/DOCS/DHCP+Relays
+
+
+
+
