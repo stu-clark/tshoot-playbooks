@@ -56,7 +56,10 @@ iface bridge
  bridge-vids 1-200
  bridge-pvid 1
 
-auto bridge.50
-iface bridge.50
- address 192.168.50.253/24
- address-virtual 00:00:5e:00:01:01 192.168.50.1/24
+auto vlan50
+iface vlan50
+    address 192.168.50.253/24
+    address-virtual 00:00:5e:00:01:01 192.168.50.1/24
+    vlan-id 50
+    vlan-raw-device bridge
+

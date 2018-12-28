@@ -54,6 +54,9 @@ iface bridge
  bridge-vids 1-200
  bridge-pvid 1
 
-auto bridge.50
-iface bridge.50
- address 192.168.50.254/24
+auto vlan50
+iface vlan50
+    address 192.168.50.254/24
+    vlan-id 50
+    vlan-raw-device bridge
+

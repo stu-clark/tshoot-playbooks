@@ -1,0 +1,85 @@
+This scenario requires understanding the path end-to-end and discovering how L3 routing should work from the hosts to the spines.  During the problem state, many packets are lost from server01 to spine layer during the reboot of leaf01:
+
+cumulus@server01:~$ ping 10.2.2.1
+PING 10.2.2.1 (10.2.2.1) 56(84) bytes of data.
+64 bytes from 10.2.2.1: icmp_seq=1 ttl=63 time=1.72 ms
+64 bytes from 10.2.2.1: icmp_seq=2 ttl=63 time=1.49 ms
+64 bytes from 10.2.2.1: icmp_seq=3 ttl=63 time=1.60 ms
+64 bytes from 10.2.2.1: icmp_seq=4 ttl=63 time=1.72 ms
+64 bytes from 10.2.2.1: icmp_seq=5 ttl=63 time=0.883 ms
+64 bytes from 10.2.2.1: icmp_seq=6 ttl=63 time=2.10 ms
+64 bytes from 10.2.2.1: icmp_seq=7 ttl=63 time=1.68 ms
+64 bytes from 10.2.2.1: icmp_seq=8 ttl=63 time=0.674 ms
+64 bytes from 10.2.2.1: icmp_seq=11 ttl=63 time=1003 ms
+64 bytes from 10.2.2.1: icmp_seq=12 ttl=63 time=3.42 ms
+From 192.168.50.1 icmp_seq=13 Destination Net Unreachable
+From 192.168.50.1 icmp_seq=14 Destination Net Unreachable
+From 192.168.50.1 icmp_seq=15 Destination Net Unreachable
+From 192.168.50.1 icmp_seq=16 Destination Net Unreachable
+64 bytes from 10.2.2.1: icmp_seq=38 ttl=63 time=2.00 ms
+64 bytes from 10.2.2.1: icmp_seq=39 ttl=63 time=1.52 ms
+
+The problem is routing to the server's next-hop/gateway during the leaf01 reboot.
+
+On server01, note the routing table points 10.0.0.0/8 to 192.168.50.1 as a gateway:
+
+cumulus@server01:~$ ip route show
+default via 192.168.0.254 dev eth0 
+10.0.0.0/8 via 192.168.50.1 dev bond0 
+
+This address is configured as a VRR address on the SVI for vlan 50 of leaf01:
+
+auto vlan50
+iface vlan50
+    address 192.168.50.253/24
+    address-virtual 00:00:5e:00:01:01 192.168.50.1/24
+    vlan-id 50
+    vlan-raw-device bridge
+
+
+
+But this is not the case on leaf02:
+
+
+auto vlan50
+iface vlan50
+    address 192.168.50.254/24
+    vlan-id 50
+    vlan-raw-device bridge
+
+This can be configured manually, or through NCLU as follows:
+
+net add vlan 50 ip address 192.168.50.254/24
+net add vlan 50 ip address-virtual 00:00:5e:00:01:01 192.168.50.1/24
+
+Resulting in the following configuration on leaf02:
+
+
+auto vlan50
+iface vlan50
+    address 192.168.50.254/24
+    address-virtual 00:00:5e:00:01:01 192.168.50.1/24
+    vlan-id 50
+    vlan-raw-device bridge
+
+After changing this, there will be minimal loss from server01 to the spine layer during reboot of leaf01:
+
+cumulus@server01:~$ ping 10.2.2.1
+PING 10.2.2.1 (10.2.2.1) 56(84) bytes of data.
+64 bytes from 10.2.2.1: icmp_seq=1 ttl=63 time=1.00 ms
+64 bytes from 10.2.2.1: icmp_seq=2 ttl=63 time=0.591 ms
+64 bytes from 10.2.2.1: icmp_seq=3 ttl=63 time=0.691 ms
+<reboot here, only lost one packet>
+64 bytes from 10.2.2.1: icmp_seq=5 ttl=63 time=1003 ms
+64 bytes from 10.2.2.1: icmp_seq=6 ttl=63 time=3.37 ms
+64 bytes from 10.2.2.1: icmp_seq=7 ttl=63 time=1.52 ms
+64 bytes from 10.2.2.1: icmp_seq=8 ttl=63 time=1.57 ms
+64 bytes from 10.2.2.1: icmp_seq=9 ttl=63 time=0.464 ms
+64 bytes from 10.2.2.1: icmp_seq=10 ttl=63 time=1.55 ms
+64 bytes from 10.2.2.1: icmp_seq=11 ttl=63 time=0.448 ms
+
+Reference for VRR:
+
+https://docs.cumulusnetworks.com/display/DOCS/Multi-Chassis+Link+Aggregation+-+MLAG
+https://docs.cumulusnetworks.com/display/DOCS/Virtual+Router+Redundancy+-+VRR
+

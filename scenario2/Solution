@@ -1,0 +1,100 @@
+In this scenario, the goal is to convert to a VLAN-aware bridge in vlan200, with the link to server01 tagged, and thel ink to server02 untagged.
+
+On leaf01, swp1 is configured to be tagged in VLAN 200 correctly:
+
+auto swp1
+iface swp1
+ bridge-vids 200
+
+However, a VLAN sub-interface co-exists that would overlap with the bridge, and this would need to be removed:
+
+
+auto swp1.200
+iface swp1.200
+
+The bond-xlink should only be a trunk in the bridge, and the sub-interface in bridge-ports in a vlan-aware bridge is invalid, and also shouldn't exist in the configuration:
+
+auto bridge
+iface bridge
+ bridge-ports swp1 bond-xlink.200
+ bridge-vlan-aware yes
+ bridge-pvid 1
+
+auto bond-xlink.200
+iface bond-xlink.200
+
+The relevant configuration should look like the following:
+
+auto bond-xlink
+iface bond-xlink
+    bond-slaves swp49 swp50
+
+auto bridge
+iface bridge
+    bridge-ports bond-xlink swp1
+    bridge-pvid 1
+    bridge-vids 1-200
+    bridge-vlan-aware yes
+
+auto swp1
+iface swp1
+    bridge-vids 200
+
+This could be configuration manually in /etc/network/interfaces followed by 'ifreload -a', or with the following net commands followed by a 'net commit':
+
+
+ net del interface bond-xlink.200
+ net del interface swp1.200
+ net add bridge bridge ports bond-xlink
+ net add bridge bridge vids 1-200
+
+-----
+
+
+On leaf02, there are similar issues.  swp2 should be untagged, but it is left as default tagging all VLANs in the bridge:
+
+auto swp2
+iface swp2
+
+auto bond-xlink.200
+iface bond-xlink.200
+
+auto bridge
+iface bridge
+ bridge-ports swp2 bond-xlink.200
+ bridge-vlan-aware yes
+ bridge-pvid 1
+
+And the bond-xlink sub-interface shouldn't exist and only the parent bond interface should be in the bridge.  This need to be corrected to look like the following manually or through NCLU:
+
+auto swp2
+iface swp2
+ bridge-access 200
+
+auto swp49
+iface swp49
+
+auto swp50
+iface swp50
+
+auto bond-xlink
+iface bond-xlink
+ bond-slaves swp49 swp50
+
+auto bridge
+iface bridge
+ bridge-ports swp2 bond-xlink
+ bridge-vlan-aware yes
+ bridge-pvid 1
+ bridge-vids 1-200
+
+After making these changes, pings between the servers should be successful:
+
+cumulus@server02:~$ ping 192.168.200.10
+PING 192.168.200.10 (192.168.200.10) 56(84) bytes of data.
+64 bytes from 192.168.200.10: icmp_seq=1 ttl=64 time=3.71 ms
+
+Reference:
+
+https://docs.cumulusnetworks.com/display/DOCS/VLAN-aware+Bridge+Mode
+https://support.cumulusnetworks.com/hc/en-us/articles/204909397-Comparing-Traditional-Bridge-Mode-to-VLAN-aware-Bridge-Mode

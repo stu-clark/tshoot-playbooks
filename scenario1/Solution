@@ -1,0 +1,33 @@
+The traditional bridge on leaf01 is configured for a tagged interface towards server01:
+
+auto bridge100
+iface bridge100
+ bridge-ports swp1.100 bond-xlink.100
+ address 192.168.100.1/24
+
+
+This needs to be changed to untagged for swp1:
+
+auto bridge100
+iface bridge100
+ bridge-ports swp1 bond-xlink.100
+ address 192.168.100.1/24
+
+Same thing on leaf02, swp2 needs to be in the traditional bridge as an untagged ports:
+
+auto bridge100
+iface bridge100
+ bridge-ports swp2 bond-xlink.100
+ address 192.168.100.2/24
+
+After making these changes and issuing ifreload -a, connectivity should be present between server01 and server02:
+
+cumulus@server02:~$ ping 192.168.100.10
+PING 192.168.100.10 (192.168.100.10) 56(84) bytes of data.
+64 bytes from 192.168.100.10: icmp_seq=1 ttl=64 time=1.96 ms
+64 bytes from 192.168.100.10: icmp_seq=2 ttl=64 time=0.570 ms
+
+
+Reference:
+
+https://docs.cumulusnetworks.com/display/DOCS/Traditional+Bridge+Mode
