@@ -1,0 +1,94 @@
+
+
+In this scenario, BGP is not coming up from spine01 to exit01 / exit02:
+
+
+	spine01# sh ip bgp sum
+
+	IPv4 Unicast Summary:
+	BGP router identifier 192.168.0.21, local AS number 65011 vrf-id 0
+	BGP table version 4
+	RIB entries 7, using 1064 bytes of memory
+	Peers 6, using 116 KiB of memory
+
+	Neighbor        V         AS MsgRcvd MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd
+
+	exit02(swp29)   4      65022       2       3        0    0    0 00:02:07         Idle
+	exit01(swp30)   4      65021       2       3        0    0    0 00:02:07         Idle
+
+
+Basic configuration parameters match, so something else is going on.
+
+Note that on spine01, PTM is enabled in frr:
+
+	cumulus@spine01:~$ sudo more /etc/frr/frr.conf
+	frr version 4.0+cl3u8
+	frr defaults datacenter
+	hostname spine01
+	ptm-enable
+
+	<snip>
+
+
+Also, /var/log/ptmd.log is complaining about a mismatch in the configuration vs. LLDP:
+
+
+
+2018-12-28T17:16:50.717547+00:00 spine01 ptmd[13378]: Recd LLDP ADD event for port swp29 remote [exit02 - swp51]
+2018-12-28T17:16:50.717760+00:00 spine01 ptmd[13378]: Port swp29 NOT matched with remote - Expected [exit01.swp51] != [exit02.sw
+p51
+2018-12-28T17:10:21.391253+00:00 spine01 ptmd[13378]: Port swp30 NOT matched with remote - Expected [exit02.swp51] != [exit01.sw
+p51]
+
+
+
+The PTM topology.dot file has the incorrect hostname information for swp29/swp30:
+
+	cumulus@spine01:~$ more /etc/ptm.d/topology.dot 
+
+	graph G {
+	    "spine01":"swp1" -- "leaf01":"swp51";
+	    "spine01":"swp2" -- "leaf02":"swp51";
+	    "spine01":"swp3" -- "leaf03":"swp51";
+	    "spine01":"swp4" -- "leaf04":"swp51";
+	    "spine01":"swp29" -- "exit01":"swp51";
+	    "spine01":"swp30" -- "exit02":"swp51";
+
+
+This should be corrected as follows, then ptmd needs to be restarted with 'sudo systemctl restart ptmd':
+
+
+	cumulus@spine01:~$ sudo cat /etc/ptm.d/topology.dot 
+
+	graph G {
+	    "spine01":"swp1" -- "leaf01":"swp51";
+	    "spine01":"swp2" -- "leaf02":"swp51";
+	    "spine01":"swp3" -- "leaf03":"swp51";
+	    "spine01":"swp4" -- "leaf04":"swp51";
+	    "spine01":"swp29" -- "exit02":"swp51";
+	    "spine01":"swp30" -- "exit01":"swp51";
+	}
+
+
+
+Now note that the BGP sessions are established:
+
+
+
+	cumulus@spine01:~$ net show bgp sum
+
+	show bgp ipv4 unicast summary
+	=============================
+	BGP router identifier 192.168.0.21, local AS number 65011 vrf-id 0
+	BGP table version 6
+	RIB entries 7, using 1064 bytes of memory
+	Peers 6, using 116 KiB of memory
+
+	Neighbor        V         AS MsgRcvd MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd
+	exit02(swp29)   4      65022       7       6        0    0    0 00:00:02            4
+	exit01(swp30)   4      65021       7       6        0    0    0 00:00:02            4
+
+
+Reference:  https://docs.cumulusnetworks.com/display/DOCS/Prescriptive+Topology+Manager+-+PTM
+
+
