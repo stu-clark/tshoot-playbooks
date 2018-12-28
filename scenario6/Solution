@@ -1,0 +1,113 @@
+This scenario is intended to cause one to map the topology using LLDP.  We see that edge01 connected to the exit01 / exit02 layer:
+
+
+cumulus@edge01:~$ sudo lldpctl
+-------------------------------------------------------------------------------
+LLDP neighbors:
+-------------------------------------------------------------------------------
+<snip>
+Interface:    eth1, via: LLDP, RID: 2, Time: 0 day, 00:00:08
+  Chassis:     
+    ChassisID:    mac 52:54:00:5b:48:2e
+    SysName:      exit01
+    SysDescr:     Cumulus Linux version 3.7.2 running on QEMU Standard PC (i440FX + PIIX, 1996)
+    MgmtIP:       192.168.0.41
+<snip>
+
+
+The 'working' connectivity example is to rack 2's network 192.168.20.0/24.  We see the exit layer has a route to this prefix through BGP:
+
+cumulus@exit01:~$ ip route show
+192.168.20.0/24 via 169.254.0.1 dev swp51  proto bgp  metric 20 onlink 
+
+But there is not a route back to the leaf04 network 192.168.40.0/24.  This is the object in question - the return route from the exit layer back to 192.168.40.0 is missing.  We see the route exists on the spine layer through BGP:
+
+cumulus@spine01:~$ ip route show
+192.168.40.0/24 via 169.254.0.1 dev swp4  proto bgp  metric 20 onlink 
+
+Yet this route isn't being advertised to the exit leaf layer.  This should cause one to look at the BGP routing policy, and observe that there is a route-map allowing only certain prefixes out to the exit layer on spine01 and spine02:
+
+
+
+
+router bgp 65011
+ neighbor swp1 interface remote-as 65001
+ neighbor swp2 interface remote-as 65002
+ neighbor swp3 interface remote-as 65003
+ neighbor swp4 interface remote-as 65004
+ neighbor swp29 interface remote-as 65022
+ neighbor swp30 interface remote-as 65021
+ !
+ address-family ipv4 unicast
+  neighbor swp29 route-map SPINE-TO-EXIT-OUT out
+  neighbor swp30 route-map SPINE-TO-EXIT-OUT out
+ exit-address-family
+!
+ip prefix-list RACK01 seq 5 permit 192.168.10.0/24
+ip prefix-list RACK02 seq 5 permit 192.168.20.0/24
+ip prefix-list RACK03 seq 5 permit 192.168.30.0/24
+!
+route-map SPINE-TO-EXIT-OUT permit 10
+ match ip address prefix-list RACK01
+!
+route-map SPINE-TO-EXIT-OUT permit 20
+ match ip address prefix-list RACK02
+!
+route-map SPINE-TO-EXIT-OUT permit 30
+ match ip address prefix-list RACK03
+
+
+
+
+A new prefix-list and route-map permit statement will need to be added to allow the advertisement of 192.168.40.0/24.  This can be done manually in vtysh or via NCLU as follows:
+
+
+net add routing prefix-list ipv4 RACK04 permit 192.168.40.0/24
+net add routing route-map SPINE-TO-EXIT-OUT permit 40 match ip address prefix-list RACK04
+
+
+
+The resulting BGP configuration will then need to look like the following:
+
+router bgp 65012
+ neighbor swp1 interface remote-as 65001
+ neighbor swp2 interface remote-as 65002
+ neighbor swp3 interface remote-as 65003
+ neighbor swp4 interface remote-as 65004
+ neighbor swp29 interface remote-as 65022
+ neighbor swp30 interface remote-as 65021
+ !
+ address-family ipv4 unicast
+  neighbor swp29 route-map SPINE-TO-EXIT-OUT out
+  neighbor swp30 route-map SPINE-TO-EXIT-OUT out
+ exit-address-family
+!
+ip prefix-list RACK01 seq 5 permit 192.168.10.0/24
+ip prefix-list RACK02 seq 5 permit 192.168.20.0/24
+ip prefix-list RACK03 seq 5 permit 192.168.30.0/24
+ip prefix-list RACK04 seq 5 permit 192.168.40.0/24
+!
+route-map SPINE-TO-EXIT-OUT permit 10
+ match ip address prefix-list RACK01
+!
+route-map SPINE-TO-EXIT-OUT permit 20
+ match ip address prefix-list RACK02
+!
+route-map SPINE-TO-EXIT-OUT permit 30
+ match ip address prefix-list RACK03
+!
+route-map SPINE-TO-EXIT-OUT permit 40
+ match ip address prefix-list RACK04
+
+
+This change will need to be made on both spine01 and spine02.  After this, the route for rack4 is present at the exit leaf layer:
+
+
+
+cumulus@exit01:~$ ip route show
+<snip>
+192.168.20.0/24 via 169.254.0.1 dev swp51  proto bgp  metric 20 onlink 
+192.168.40.0/24 via 169.254.0.1 dev swp51  proto bgp  metric 20 onlink 
+
+
+
