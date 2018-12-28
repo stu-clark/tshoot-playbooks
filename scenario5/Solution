@@ -1,0 +1,99 @@
+In this scenario, there is no ECMP route to the spines for prefix 10.10.10.0/30:
+
+
+cumulus@leaf01:~$ ip route show
+<snip>
+10.10.10.0/30 via 172.16.1.1 dev swp52  proto ospf  metric 20 
+172.16.1.0/30 dev swp52  proto kernel  scope link  src 172.16.1.2 
+
+Yet spine01 and spine02 are correctly receiving this route from leaf03:
+
+O>* 10.10.10.0/30 [110/20] via 172.16.2.2, swp3, 00:01:01
+
+The answer lies in the OSPF database of leaf01 (or just comparing the configurations on spine01/spine02).  Note the lower cost of 4 when looking at the spine02 router LSA for the locally connected link to leaf03:
+
+
+
+
+
+
+leaf01# sh ip ospf database router 192.168.0.2
+
+       OSPF Router with ID (192.168.0.3)
+
+
+                Router Link States (Area 0.0.0.1)
+
+  LS age: 247
+  Options: 0x2  : *|-|-|-|-|-|E|-
+  LS Flags: 0x6  
+  Flags: 0x0
+  LS Type: router-LSA
+  Link State ID: 192.168.0.2 
+  Advertising Router: 192.168.0.2
+  LS Seq Number: 80000004
+  Checksum: 0x1d90
+  Length: 72
+
+   Number of Links: 4
+
+    Link connected to: another Router (point-to-point)
+     (Link ID) Neighboring Router ID: 192.168.0.3
+     (Link Data) Router Interface address: 172.16.1.1
+      Number of TOS metrics: 0
+       TOS 0 Metric: 100
+
+    Link connected to: Stub Network
+     (Link ID) Net: 172.16.1.0
+     (Link Data) Network Mask: 255.255.255.252
+      Number of TOS metrics: 0
+       TOS 0 Metric: 100
+
+    Link connected to: another Router (point-to-point)
+     (Link ID) Neighboring Router ID: 192.168.0.4
+     (Link Data) Router Interface address: 172.16.2.1
+      Number of TOS metrics: 0
+       TOS 0 Metric: 4
+
+    Link connected to: Stub Network
+     (Link ID) Net: 172.16.2.0
+     (Link Data) Network Mask: 255.255.255.252
+      Number of TOS metrics: 0
+       TOS 0 Metric: 4
+
+
+
+Compared to spine01, shows 100:
+
+
+    Link connected to: another Router (point-to-point)
+     (Link ID) Neighboring Router ID: 192.168.0.3
+     (Link Data) Router Interface address: 0.0.0.4
+      Number of TOS metrics: 0
+       TOS 0 Metric: 100
+
+
+
+Note in spine02 /etc/frr/frr.conf (or from vtysh, 'sh run') that the interface to leaf03 has it's cost manually lowered:
+
+interface swp3
+ ip ospf cost 4
+ ip ospf network point-to-point
+
+
+This is factored into the qualification for ECMP, regardless of being an OSPF E2 route.  Removing 'ip ospf cost 4' from swp3 manually or via NCLU is the solution:
+
+net del interface swp3 ospf cost 4
+
+
+
+Now the route is ECMP from leaf01 up to both spines:
+
+
+
+cumulus@leaf01:~$ ip route show
+<snip>
+10.10.10.0/30  proto ospf  metric 20 
+	nexthop via 172.16.1.1  dev swp52 weight 1
+	nexthop via 192.168.0.1  dev swp51 weight 1 onlink
+
