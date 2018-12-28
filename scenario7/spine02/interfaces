@@ -2,7 +2,7 @@
 
 auto lo
 iface lo inet loopback
-
+ address 172.16.2.2/32
 
 
 

@@ -1,0 +1,12 @@
+In this case, the spines can not ping server03 or server04.
+
+What might cause such a unidirectional issue to the control plane on a particular switch?  This lab should cause one to investigate the ACLs in place.
+
+In this case, the default /etc/cumulus/acl/policy.d/00control_plane.rules file has been edited on the leaf switches and at the bottom of the [iptables] section we'll see a rule such as the following:
+
+-A FORWARD --in-interface swp51,swp52 -p icmp --icmp-type echo-request -j DROP
+
+
+This will drop ICMP echoes from the forward chain (transit) through leaf03 and leaf04.  This rule will need to be manually removed, and the change applied with cl-acltool -i.  After this, the spines should be able to ping server03 and server04.
+
+Reference: https://docs.cumulusnetworks.com/display/DOCS/Netfilter+-+ACLs
